@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "buffer/buffer_pool_manager.h"
-
+#include "common/logger.h"
 #include <list>
 #include <unordered_map>
 
@@ -52,13 +52,58 @@ bool BufferPoolManager::FlushPageImpl(page_id_t page_id) {
   return false;
 }
 
+bool BufferPoolManager::allPinned() {
+  for (size_t fid = 0; fid < this->pool_size_; fid++)
+  {
+      auto page = GetPages() + fid;
+      if (page->pin_count_ <= 0) {
+        return false;
+        break;
+      }
+  }
+  return true;  
+}
+
+frame_id_t BufferPoolManager::victimPage() {
+  frame_id_t frame_id;
+  if (!free_list_.empty()) {
+    frame_id = free_list_.front();
+    free_list_.pop_front();
+    return frame_id;
+  }
+  if (!replacer_->Victim(&frame_id)) {
+    return -1;
+  }
+  auto page = GetPages() + frame_id;
+  LOG_DEBUG("Page id %d, is dirty %d", page->page_id_, page->IsDirty());
+  page_table_.erase(page->GetPageId());
+  if (page->IsDirty()) {
+    LOG_DEBUG("Page %d is dirty, writing", page->GetPageId());
+    disk_manager_->WritePage(page->GetPageId(), page->GetData());
+  }
+  return frame_id;
+}
+
 Page *BufferPoolManager::NewPageImpl(page_id_t *page_id) {
   // 0.   Make sure you call DiskManager::AllocatePage!
+  std::lock_guard<std::mutex> lock(this->latch_);
+  //主要是防止一个线程正在执行该函数的时候，另外一个线程写数据导致错误
   // 1.   If all the pages in the buffer pool are pinned, return nullptr.
+  if (this->allPinned()) return nullptr;  
   // 2.   Pick a victim page P from either the free list or the replacer. Always pick from the free list first.
+  auto frame_id = this->victimPage();
+  if (frame_id < 0) return nullptr;
+  auto page = GetPages() + frame_id;  
+  LOG_DEBUG("Frame to be victimized %d", frame_id);
   // 3.   Update P's metadata, zero out memory and add P to the page table.
+  page->page_id_ = disk_manager_->AllocatePage();
+  page->ResetMemory();
+  page->pin_count_ = 1;
+  page->is_dirty_ = false;  
   // 4.   Set the page ID output parameter. Return a pointer to P.
-  return nullptr;
+  page_table_.insert({page->page_id_, frame_id});  
+  *page_id = page->page_id_;
+  return page;
 }
 
 bool BufferPoolManager::DeletePageImpl(page_id_t page_id) {

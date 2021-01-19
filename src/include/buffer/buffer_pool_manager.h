@@ -97,6 +97,11 @@ class BufferPoolManager {
   /** @return size of the buffer pool */
   size_t GetPoolSize() { return pool_size_; }
 
+  /** @return 是否全被粘住 */
+  bool allPinned();
+
+  /** @return 替换掉的页id */
+  frame_id_t victimPage();
  protected:
   /**
    * Grading function. Do not modify!
