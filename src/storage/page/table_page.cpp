@@ -9,7 +9,7 @@
 // Copyright (c) 2015-2019, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
-
+ 
 #include "storage/page/table_page.h"
 
 #include <cassert>

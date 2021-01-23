@@ -28,6 +28,14 @@ void LogManager::RunFlushThread() {}
  * Stop and join the flush thread, set enable_logging = false
  */
 void LogManager::StopFlushThread() {}
+/**
+ * Force flush the current LogManager
+ */
+void LogManager::ForceFlush() {
+  std::lock_guard<std::mutex> lock(this->latch_);
+  this->force_flush_flag_ = true;
+  this->cv_.notify_one();
+}
 
 /*
  * append a log record into log buffer

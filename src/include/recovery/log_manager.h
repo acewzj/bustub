@@ -43,7 +43,7 @@ class LogManager {
 
   void RunFlushThread();
   void StopFlushThread();
-
+  void ForceFlush();
   lsn_t AppendLogRecord(LogRecord *log_record);
 
   inline lsn_t GetNextLSN() { return next_lsn_; }
@@ -53,7 +53,7 @@ class LogManager {
 
  private:
   // TODO(students): you may add your own member variables
-
+  bool force_flush_flag_;
   /** The atomic counter which records the next log sequence number. */
   std::atomic<lsn_t> next_lsn_;
   /** The log records before and including the persistent lsn have been written to disk. */
