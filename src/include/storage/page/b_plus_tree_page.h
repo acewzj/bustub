@@ -70,6 +70,7 @@ class BPlusTreePage {
   int max_size_ __attribute__((__unused__));
   page_id_t parent_page_id_ __attribute__((__unused__));
   page_id_t page_id_ __attribute__((__unused__));
+  std::mutex mutex_;
 };
 
 }  // namespace bustub

@@ -27,7 +27,19 @@ namespace bustub {
  * next page id and set max size
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(page_id_t page_id, page_id_t parent_id, int max_size) {}
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(page_id_t page_id, page_id_t parent_id, int max_size) {
+  SetPageType(IndexPageType::LEAF_PAGE);
+  // 1 for the first invalid key
+  SetSize(0);
+  //
+  SetPageId(page_id);
+  //
+  SetParentPageId(parent_id);
+  //
+  SetNextPageId(INVALID_PAGE_ID);
+  //
+  SetMaxSize(max_size);
+}
 
 /**
  * Helper methods to set/get next page id
@@ -75,6 +87,7 @@ const MappingType &B_PLUS_TREE_LEAF_PAGE_TYPE::GetItem(int index) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 int B_PLUS_TREE_LEAF_PAGE_TYPE::Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) {
+  
   return 0;
 }
 

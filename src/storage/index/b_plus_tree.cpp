@@ -31,7 +31,9 @@ BPLUSTREE_TYPE::BPlusTree(std::string name, BufferPoolManager *buffer_pool_manag
  * Helper function to decide whether current b+tree is empty
  */
 INDEX_TEMPLATE_ARGUMENTS
-bool BPLUSTREE_TYPE::IsEmpty() const { return true; }
+bool BPLUSTREE_TYPE::IsEmpty() const { 
+  return root_page_id_ == INVALID_PAGE_ID;
+}
 /*****************************************************************************
  * SEARCH
  *****************************************************************************/
@@ -54,9 +56,16 @@ bool BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  * entry, otherwise insert into leaf page.
  * @return: since we only support unique key, if user try to insert duplicate
  * keys return false, otherwise return true.
- */
+ */ 
 INDEX_TEMPLATE_ARGUMENTS
-bool BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) { return false; }
+bool BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) {
+  std::lock_guard<std::mutex> lock(mutex_);  
+  if (IsEmpty()) {
+    StartNewTree(key, value);
+    return true;
+  }
+  return InsertIntoLeaf(key, value, transaction);
+}
 /*
  * Insert constant key & value pair into an empty tree
  * User needs to first ask for new page from buffer pool manager(NOTICE: throw
@@ -64,7 +73,22 @@ bool BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
  * tree's root page id and insert entry directly into leaf page.
  */
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {}
+void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
+  auto *page = buffer_pool_manager_->NewPage(root_page_id_);
+  if (page == nullptr) {
+    throw exception(OUT_OF_MEMORY, "all pages pinned while StartNewTree");
+  }
+  // 
+  auto root = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(page->GetData());
+  // 别忘了要更新根节点页面id
+  UpdateRootPageId(true);
+  //set max page size, header is 28bytes 24 + 4 next_page_id_
+  int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage)) / (sizeof(KeyType) + sizeof(ValueType));  
+  root->Init(root_page_id_, INVALID_PAGE_ID, size);
+  root->Insert(key, value, KeyComparator);
+  //根页已经被修改了，写入了东西。
+  buffer_pool_manager_->UnpinPage(root->GetPageId(), true);  
+}
 
 /*
  * Insert constant key & value pair into leaf page
@@ -76,7 +100,49 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {}
  */
 INDEX_TEMPLATE_ARGUMENTS
 bool BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, Transaction *transaction) {
-  return false;
+  auto* leaf = FindLeafPage(key, false);
+  if (leaf == nullptr)
+    return false;
+  
+  ValueType v;
+  //如果树中已经存在值了，有key了，就返回false
+  if (leaf->LookUp(key, v, comparator_)) {
+    UnlockUnpinPages();
+    return false;
+  }
+  // 不需要分裂就直接插入
+  if (leaf->GetSize() < leaf->GetMaxSize())
+  {
+    leaf->Insert(key, value, comparator_);
+  }  
+  else
+  {
+    //分裂出一个新的叶子节点页面
+    auto* leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);
+    if (comparator_(key, leaf2->KeyAt(0)) < 0) {
+      leaf->Insert(key, value, comparator_);
+    }
+    else
+    {
+      leaf2->Insert(key, value, comparator_);
+    }
+    //更新前后关系
+    if (comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0) {
+      leaf2->SetNextPageId(leaf->GetNextPageId());
+      leaf->SetNextPageId(leaf2->GetPageId());
+    }
+    else
+    {
+      leaf2->SetNextPageId(leaf->GetPageId());
+    }
+
+    //将分裂的节点插入到父节点
+    InsertIntoParent(leaf, leaf2->KeyAt(0), leaf2, transaction);
+    
+  }
+
+  UnlockUnpinPages(Operation::INSERT, transaction);
+  return true;
 }
 
 /*
@@ -212,10 +278,12 @@ INDEXITERATOR_TYPE BPLUSTREE_TYPE::end() { return INDEXITERATOR_TYPE(); }
  */
 INDEX_TEMPLATE_ARGUMENTS
 Page *BPLUSTREE_TYPE::FindLeafPage(const KeyType &key, bool leftMost) {
-  throw Exception(ExceptionType::NOT_IMPLEMENTED, "Implement this for test");
+
+
+  return nullptr;
 }
 
-/*
+/* 
  * Update/Insert root page id in header page(where page_id = 0, header_page is
  * defined under include/page/header_page.h)
  * Call this method everytime root page id is changed.
