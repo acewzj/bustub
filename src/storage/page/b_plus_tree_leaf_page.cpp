@@ -151,9 +151,12 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(BPlusTreeLeafPage *recipient) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyNFrom(MappingType *items, int size) {
-  assert(IsLeafPage() && GetSize() == 0);
+  assert(IsLeafPage() && (GetSize() + size <= GetMaxSize()));
+  // 这个函数从别的叶子页面拷贝过来会不会把自己的一些东西也给覆盖了呢？
+  // 我觉得不能覆盖之前写的东西了吧？
+  auto start = GetSize();
   for (int i = 0; i < size; ++i) {
-    array[i] = *src++;
+    array[start + i] = *items++;
   }
   IncreaseSize(size);
 }
@@ -198,7 +201,25 @@ bool B_PLUS_TREE_LEAF_PAGE_TYPE::Lookup(const KeyType &key, ValueType &value, co
  */
 INDEX_TEMPLATE_ARGUMENTS
 int B_PLUS_TREE_LEAF_PAGE_TYPE::RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator) {
-  
+  if (GetSize() == 0 || comparator(key, KeyAt(0)) < 0 || comparator(key, KeyAt(GetSize() - 1)) > 0 ) {
+    return GetSize();
+  }
+  int low = 0, high = GetSize() - 1, mid;
+  while (low <= high) {
+    mid = low + (high - low) / 2;
+    if (comparator(key, KeyAt(mid)) > 0) {
+      low = mid + 1;
+    }
+    else if (comparator(key, KeyAt(mid)) < 0) {
+      high = mid - 1;
+    }
+    else {
+      memmove(array + mid, array + mid + 1, static_cast<size_t>((GetSize() - mid - 1) * sizeof(MappingType)));
+      IncreaseSize(-1);
+      break;
+    }
+  }
+  return GetSize();
 }
 
 /*****************************************************************************
@@ -210,7 +231,9 @@ int B_PLUS_TREE_LEAF_PAGE_TYPE::RemoveAndDeleteRecord(const KeyType &key, const 
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *recipient) {
-
+  recipient->CopyNFrom(array, GetSize());
+  // ?这块不应该是从 x 拷贝 到 y 吗？不应该是设置 x 的 NextPageId？怎么变成了设置 y 的 NextPageId？？？
+  recipient->SetNextPageId(GetNextPageId());
 }
 
 /*****************************************************************************

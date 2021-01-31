@@ -24,7 +24,7 @@ bool HeaderPage::InsertRecord(const std::string &name, const page_id_t root_id) 
   assert(root_id > INVALID_PAGE_ID);
 
   int record_num = GetRecordCount();
-  int offset = 4 + record_num * 36;
+  int offset = 4 + record_num * 36;//????
   // check for duplicate name
   if (FindRecord(name) != -1) {
     return false;

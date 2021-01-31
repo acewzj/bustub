@@ -123,7 +123,13 @@ ValueType B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyCo
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_value, const KeyType &new_key,
-                                                     const ValueType &new_value) {}
+                                                     const ValueType &new_value) {
+  // must be an empty page
+  assert(GetSize() == 1);
+  array[0].second = old_value;
+  array[1] = {new_key, new_value};
+  IncreaseSize(1);  
+}
 /*
  * Insert new_key & new_value pair right after the pair with its value ==
  * old_value
@@ -132,7 +138,18 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_value,
 INDEX_TEMPLATE_ARGUMENTS
 int B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value, const KeyType &new_key,
                                                     const ValueType &new_value) {
-  return 0;
+  for (int i = GetSize(); i > 0; --i)
+  {
+    if (array[i - 1].second == old_value)
+    {
+      // 在old_value节点后面插入一个新节点
+      array[i] = {new_key, new_value};
+      IncreaseSize(1);
+      break;
+    }
+    array[i] = array[i - 1];
+  }
+  return GetSize();
 }
 
 /*****************************************************************************
@@ -143,14 +160,41 @@ int B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value, 
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(BPlusTreeInternalPage *recipient,
-                                                BufferPoolManager *buffer_pool_manager) {}
+                                                BufferPoolManager *buffer_pool_manager) {
+  auto half = (GetSize() + 1) / 2;
+  recipient->CopyNFrom(array + GetSize() - half, half, buffer_pool_manager);
+
+  // 更新孩子节点的父节点id
+  for (auto index = GetSize() - half; index < GetSize(); ++index)
+  {
+    auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
+    if (page == nullptr)
+    {
+      throw Exception(ExceptionType::OUT_OF_MEMORY,
+                      "all page are pinned while CopyLastFrom");
+    }
+    auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+    child->SetParentPageId(recipient->GetPageId());
+
+    assert(child->GetParentPageId() == recipient->GetPageId());
+    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+  }
+  IncreaseSize(-1 * half);
+}
 
 /* Copy entries into me, starting from {items} and copy {size} entries.
  * Since it is an internal page, for all entries (pages) moved, their parents page now changes to me.
  * So I need to 'adopt' them by changing their parent page id, which needs to be persisted with BufferPoolManger
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyNFrom(MappingType *items, int size, BufferPoolManager *buffer_pool_manager) {}
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyNFrom(MappingType *items, int size, BufferPoolManager *buffer_pool_manager) {
+  assert(!IsLeafPage() && GetSize() == 1 && size > 0);
+  for (int i = 0; i < size; ++i)
+  {
+    array[i] = *items++;
+  }
+  IncreaseSize(size - 1);  
+}
 
 /*****************************************************************************
  * REMOVE
@@ -161,14 +205,25 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyNFrom(MappingType *items, int size, Buf
  * NOTE: store key&value pair continuously after deletion
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(int index) {}
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(int index) {
+  assert(0 <= index && index < GetSize());
+  for (int i = index; i < GetSize() - 1; ++i)
+  {
+    array[i] = array[i + 1];
+  }
+  IncreaseSize(-1);  
+}
 
 /*
  * Remove the only key & value pair in internal page and return the value
  * NOTE: only call this method within AdjustRoot()(in b_plus_tree.cpp)
  */
 INDEX_TEMPLATE_ARGUMENTS
-ValueType B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() { return INVALID_PAGE_ID; }
+ValueType B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() {
+  IncreaseSize(-1);
+  assert(GetSize() == 1);
+  return ValueAt(0);  
+}
 /*****************************************************************************
  * MERGE
  *****************************************************************************/
@@ -181,7 +236,37 @@ ValueType B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() { return IN
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage *recipient, const KeyType &middle_key,
-                                               BufferPoolManager *buffer_pool_manager) {}
+                                               BufferPoolManager *buffer_pool_manager) {
+  // 首先先获得父节点页面
+  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+  if (page == nullptr) {
+    throw Exception(ExceptionType::OUT_OF_MEMORY,
+                    "all page are pinned while MoveAllTo");
+  }  
+  auto *parent = reinterpret_cast<BPlusTreeInternalPage *>(page->GetData());  
+  // 更新父节点中的key值
+  SetKeyAt(0, middle_key);  
+
+  // assert(parent->ValueAt(middle_key) == GetPageId());
+
+  buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
+
+  recipient->CopyNFrom(array, GetSize(), buffer_pool_manager);  
+  // 更新孩子节点的父节点id
+  for (auto index = 0; index < GetSize(); ++index) {
+    auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
+    if (page == nullptr) {
+      throw Exception(ExceptionType::OUT_OF_MEMORY,
+                      "all page are pinned while CopyLastFrom");
+    }
+    auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+
+    child->SetParentPageId(recipient->GetPageId());
+
+    assert(child->GetParentPageId() == recipient->GetPageId());
+    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+  }  
+}
 
 /*****************************************************************************
  * REDISTRIBUTE

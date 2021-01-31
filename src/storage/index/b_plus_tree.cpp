@@ -130,9 +130,9 @@ bool BPLUSTREE_TYPE::isSafe(BPlusTreePage* node, Operation op) {
  * keys return false, otherwise return true.
  */ 
 INDEX_TEMPLATE_ARGUMENTS
-bool BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) {
-  std::lock_guard<std::mutex> lock(mutex_);  
+bool BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) {  
   if (IsEmpty()) {
+    std::lock_guard<std::mutex> lock(mutex_);      
     StartNewTree(key, value);
     return true;
   }
@@ -154,7 +154,7 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
   auto root = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(page->GetData());
   // 别忘了要更新根节点页面id
   UpdateRootPageId(true);
-  //set max page size, header is 28bytes 24 + 4 next_page_id_
+  //set max page size, header is 28bytes 24 + 4 next_page_id_ (4096 - 28) / 16
   int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>)) / (sizeof(KeyType) + sizeof(ValueType));  
   root->Init(root_page_id_, INVALID_PAGE_ID, size);
   root->Insert(key, value, comparator_);
@@ -177,7 +177,7 @@ bool BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, 
   if (leaf == nullptr)
     return false;  
   ValueType v;
-  //如果树中已经存在值了，有key了，就返回false
+  // 如果树中已经存在值了，有key了，就返回false
   if (leaf->Lookup(key, v, comparator_)) {
     UnlockUnpinPages(Operation::INSERT, transaction);
     return false;
@@ -187,7 +187,7 @@ bool BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, 
     leaf->Insert(key, value, comparator_);
   } 
   else {
-    //分裂出一个新的叶子节点页面
+    // 分裂出一个新的叶子节点页面
     auto* leaf2 = Split<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>(leaf);
     if (comparator_(key, leaf2->KeyAt(0)) < 0) {
       leaf->Insert(key, value, comparator_);
@@ -195,7 +195,7 @@ bool BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, 
     else {
       leaf2->Insert(key, value, comparator_);
     }
-    //更新前后关系
+    // 更新前后关系
     if (comparator_(leaf->KeyAt(0), leaf2->KeyAt(0)) < 0) {
       leaf2->SetNextPageId(leaf->GetNextPageId());
       leaf->SetNextPageId(leaf2->GetPageId());
@@ -203,7 +203,7 @@ bool BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, 
     else {
       leaf2->SetNextPageId(leaf->GetPageId());
     }
-    //将分裂的节点插入到父节点
+    // 将分裂的节点插入到父节点
     InsertIntoParent(leaf, leaf2->KeyAt(0), leaf2, transaction);    
   }
   UnlockUnpinPages(Operation::INSERT, transaction);
