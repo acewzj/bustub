@@ -47,8 +47,7 @@ bool BPLUSTREE_TYPE::IsEmpty() const {
 INDEX_TEMPLATE_ARGUMENTS
 bool BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction) {
   // 根据 key 找到叶子节点页面
-  Page* leaf_page = FindLeafPage(key, false, Operation::READONLY, transaction);
-  BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>* leaf = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(leaf_page);
+  auto* leaf = FindLeafPage(key, false, Operation::READONLY, transaction);
   bool ret = false;
   if (leaf != nullptr) {
     ValueType value;
@@ -155,8 +154,8 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
   // 别忘了要更新根节点页面id
   UpdateRootPageId(true);
   //set max page size, header is 28bytes 24 + 4 next_page_id_ (4096 - 28) / 16
-  int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>)) / (sizeof(KeyType) + sizeof(ValueType));  
-  root->Init(root_page_id_, INVALID_PAGE_ID, size);
+  // int size = (PAGE_SIZE - sizeof(BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>)) / (sizeof(KeyType) + sizeof(ValueType));  
+  root->Init(root_page_id_, INVALID_PAGE_ID, leaf_max_size_);
   root->Insert(key, value, comparator_);
   //根页已经被修改了，写入了东西。
   buffer_pool_manager_->UnpinPage(root->GetPageId(), true);  
@@ -172,8 +171,8 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 bool BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, Transaction *transaction) {
-  Page* leaf_page = FindLeafPage(key, false, Operation::INSERT, transaction);
-  auto* leaf = reinterpret_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(leaf_page);
+  auto* leaf = FindLeafPage(key, false, Operation::INSERT, transaction);
+ 
   if (leaf == nullptr)
     return false;  
   ValueType v;
@@ -227,9 +226,9 @@ N *BPLUSTREE_TYPE::Split(N *node) {
     
   }
   auto new_node = reinterpret_cast<N *>(page->GetData());
-  new_node->Init(page_id);
+  new_node->Init(page_id, node->GetPageId(), node->GetMaxSize());
 
-  new_node->MoveHalfTo(new_node);
+  node->MoveHalfTo(new_node);
   return new_node;
 }
 
@@ -244,7 +243,50 @@ N *BPLUSTREE_TYPE::Split(N *node) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node,
-                                      Transaction *transaction) {}
+                                      Transaction *transaction) {
+  // 如果 old_node 是根节点，则需要重新生成一个根页面，页面 id 即为 root_page_id_
+  if (old_node->IsRootPage()) {
+    auto* page = buffer_pool_manager_->NewPage(&root_page_id_);
+    if (page == nullptr) {
+      throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while InsertIntoParent");
+    }
+    assert(page->GetPinCount() == 1);
+    auto root = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *> (page->GetData());
+    root->Init(root_page_id_, INVALID_PAGE_ID, internal_max_size_);
+    root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
+
+    old_node->SetParentPageId(root_page_id_);
+    new_node->SetParentPageId(root_page_id_);    
+
+    // 这时需要更新根节点页面id
+    UpdateRootPageId(false);    
+  }          
+  else {
+    auto *page = buffer_pool_manager_->FetchPage(old_node->GetParentPageId());
+    if (page == nullptr) {
+      throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while InsertIntoParent");
+    }
+    auto internal = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *>(page->GetData());
+    // 如果父节点还有空间
+    if (internal->GetSize() < internal->GetMaxSize()) {
+      internal->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
+      new_node->SetParentPageId(internal->GetPageId());
+      buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);      
+    }
+    else {
+      page_id_t page_id;
+      auto *page = buffer_pool_manager_->NewPage(&page_id);
+      if (page == nullptr)
+      {
+        throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while InsertIntoParent");
+      }
+      assert(page->GetPinCount() == 1);
+      auto *copy = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());   
+         
+    }
+  }                              
+
+}
 
 /*****************************************************************************
  * REMOVE
@@ -352,7 +394,8 @@ INDEXITERATOR_TYPE BPLUSTREE_TYPE::end() { return INDEXITERATOR_TYPE(); }
  * the left most leaf page
  */
 INDEX_TEMPLATE_ARGUMENTS
-Page *BPLUSTREE_TYPE::FindLeafPage(const KeyType &key, bool leftMost, Operation op, Transaction *transaction) {
+B_PLUS_TREE_LEAF_PAGE_TYPE *BPLUSTREE_TYPE::FindLeafPage(const KeyType &key, bool leftMost, Operation op, Transaction *transaction) {
+
   
   // 如果操作不是只读的，就要把根节点锁住，防止把根节点给篡改了
   if (op != Operation::READONLY) {
@@ -415,7 +458,8 @@ Page *BPLUSTREE_TYPE::FindLeafPage(const KeyType &key, bool leftMost, Operation 
       parent = child;
     }    
   }  
-  return reinterpret_cast<Page *>(node);  
+ 
+  return reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE *>(node);  
 }
 
 /* 
