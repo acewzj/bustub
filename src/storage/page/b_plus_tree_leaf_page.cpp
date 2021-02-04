@@ -56,10 +56,8 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) { next_pa
  */
 INDEX_TEMPLATE_ARGUMENTS
 int B_PLUS_TREE_LEAF_PAGE_TYPE::KeyIndex(const KeyType &key, const KeyComparator &comparator) const { 
-  for (int i = 0; i < GetSize(); ++i)
-  {
-    if (comparator(key, array[i].first) <= 0)
-    {
+  for (int i = 0; i < GetSize(); ++i) {
+    if (comparator(key, array[i].first) <= 0) {
       return i;
     }
   }
