@@ -222,8 +222,7 @@ N *BPLUSTREE_TYPE::Split(N *node) {
   page_id_t page_id;
   auto* page = buffer_pool_manager_->NewPage(&page_id);
   if (page == nullptr) {
-    throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while Splitting.");
-    
+    throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while Splitting.");    
   }
   auto new_node = reinterpret_cast<N *>(page->GetData());
   new_node->Init(page_id, node->GetPageId(), node->GetMaxSize());
@@ -251,22 +250,25 @@ void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &ke
       throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while InsertIntoParent");
     }
     assert(page->GetPinCount() == 1);
-    auto root = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *> (page->GetData());
+    auto* root = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *> (page->GetData());
     root->Init(root_page_id_, INVALID_PAGE_ID, internal_max_size_);
-    root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
+    root->PopulateNewRoot(static_cast<ValueType>(old_node->GetPageId()), key, static_cast<ValueType>(new_node->GetPageId()));
 
     old_node->SetParentPageId(root_page_id_);
     new_node->SetParentPageId(root_page_id_);    
 
     // 这时需要更新根节点页面id
-    UpdateRootPageId(false);    
+    UpdateRootPageId(false);   
+    buffer_pool_manager_->UnpinPage(new_node->GetPageId(), true);
+
+    buffer_pool_manager_->UnpinPage(root->GetPageId(), true);     
   }          
   else {
     auto *page = buffer_pool_manager_->FetchPage(old_node->GetParentPageId());
     if (page == nullptr) {
       throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while InsertIntoParent");
     }
-    auto internal = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *>(page->GetData());
+    auto* internal = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
     // 如果父节点还有空间
     if (internal->GetSize() < internal->GetMaxSize()) {
       internal->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
@@ -297,7 +299,7 @@ void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &ke
       }
 
       assert(copy->GetSize() == copy->GetMaxSize());
-      auto internal2 = Split<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>> (copy);
+      auto internal2 = Split<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>> (copy);
 
       internal->SetSize(copy->GetSize() + 1);
       for (int i = 0; i < copy->GetSize(); ++i) {
@@ -376,7 +378,7 @@ bool BPLUSTREE_TYPE::CoalesceOrRedistribute(N *node, Transaction *transaction) {
   }
   auto *page = buffer_pool_manager_->FetchPage(node->GetParentPageId());
   if (page == nullptr) {
-    throw Exception(EXCEPTION_TYPE_INDEX,
+    throw Exception(ExceptionType::OUT_OF_MEMORY,
                     "all page are pinned while CoalesceOrRedistribute");
   }
   auto parent = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
@@ -391,7 +393,7 @@ bool BPLUSTREE_TYPE::CoalesceOrRedistribute(N *node, Transaction *transaction) {
   }
   page = buffer_pool_manager_->FetchPage(sibling_page_id);
   if (page == nullptr) {
-    throw Exception(EXCEPTION_TYPE_INDEX, "all page are pinned while CoalesceOrRedistribute");
+    throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while CoalesceOrRedistribute");
   }
   // lab3
   page->WLatch();
@@ -429,6 +431,7 @@ bool BPLUSTREE_TYPE::CoalesceOrRedistribute(N *node, Transaction *transaction) {
  * take info of deletion into account. Remember to deal with coalesce or
  * redistribute recursively if necessary.
  * Using template N to represent either internal page or leaf page.
+ * 移动所有的键值对 从一个页面到它的兄弟页面，并且通知BPM 去删除该页，父页面必须进行调整以考虑删除信息 必要时递归重新分配
  * @param   neighbor_node      sibling page of input "node"
  * @param   node               input from method coalesceOrRedistribute()
  * @param   parent             parent page of input "node"
@@ -437,10 +440,10 @@ bool BPLUSTREE_TYPE::CoalesceOrRedistribute(N *node, Transaction *transaction) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 template <typename N>
-bool BPLUSTREE_TYPE::Coalesce(N **neighbor_node, N **node,
-                              BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> **parent, int index,
+bool BPLUSTREE_TYPE::Coalesce(N *neighbor_node, N *node,
+                              BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent, int index,
                               Transaction *transaction) {
-  node->MoveAllTo(neighbor_node, index, buffer_pool_manager_);
+  node->MoveAllTo(neighbor_node, index);
 
   parent->Remove(index);
 
@@ -457,6 +460,8 @@ bool BPLUSTREE_TYPE::Coalesce(N **neighbor_node, N **node,
  * 0, move sibling page's first key & value pair into end of input "node",
  * otherwise move sibling page's last key & value pair into head of input
  * "node".
+ * 重新分配 键值对 从一个页面到 兄弟页面， 如果索引为0 ，移动兄弟页面的首个键值对到输入节点的最后面
+ * 否则移动兄弟页面的最后的键值对到输入节点的头部
  * Using template N to represent either internal page or leaf page.
  * @param   neighbor_node      sibling page of input "node"
  * @param   node               input from method coalesceOrRedistribute()
@@ -465,18 +470,18 @@ INDEX_TEMPLATE_ARGUMENTS
 template <typename N>
 void BPLUSTREE_TYPE::Redistribute(N *neighbor_node, N *node, int index) {
   if (index == 0) {
-    neighbor_node->MoveFirstToEndOf(node, buffer_pool_manager_);
+    neighbor_node->MoveFirstToEndOf(node);
   }
   else {
     auto *page = buffer_pool_manager_->FetchPage(node->GetParentPageId());
     if (page == nullptr) {
-      throw Exception(EXCEPTION_TYPE_INDEX,
+      throw Exception(ExceptionType::OUT_OF_MEMORY,
                       "all page are pinned while Redistribute");
     }
     auto parent = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
     int idx = parent->ValueIndex(node->GetPageId());
     buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
-    neighbor_node->MoveLastToFrontOf(node, idx, buffer_pool_manager_);
+    neighbor_node->MoveLastToFrontOf(node, idx);
   }  
 }
 /*
@@ -517,20 +522,6 @@ bool BPLUSTREE_TYPE::AdjustRoot(BPlusTreePage *old_root_node) {
   return false;
 }
 
-/*****************************************************************************
- * INDEX ITERATOR
- *****************************************************************************/
-/*
- * Input parameter is void, find the leaftmost leaf page first, then construct
- * index iterator
- * @return : index iterator
- */
-INDEX_TEMPLATE_ARGUMENTS
-INDEXITERATOR_TYPE BPLUSTREE_TYPE::begin() {
-  KeyType key{};
-  return IndexIterator<KeyType, ValueType, KeyComparator>(FindLeafPage(key, true), 0, buffer_pool_manager_);
-}
-
 /*
  * Input parameter is low key, find the leaf page that contains the input key
  * first, then construct index iterator
@@ -538,7 +529,7 @@ INDEXITERATOR_TYPE BPLUSTREE_TYPE::begin() {
  */
 INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE BPLUSTREE_TYPE::Begin(const KeyType &key) {
-  auto *leaf = FindLeafPage(key, false, Operation::READONLY, transaction);
+  BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *leaf = FindLeafPage(key, false);
   int index = 0;
   if (leaf != nullptr) {
     index = leaf->KeyIndex(key, comparator_);

@@ -57,7 +57,6 @@ class BPlusTree {
   bool GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr);
 
   // index iterator
-  INDEXITERATOR_TYPE begin();
   INDEXITERATOR_TYPE Begin(const KeyType &key);
   INDEXITERATOR_TYPE end();
 
@@ -79,7 +78,7 @@ class BPlusTree {
   // read data from file and remove one by one
   void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
   // expose for test purpose
-  B_PLUS_TREE_LEAF_PAGE_TYPE *FindLeafPage(const KeyType &key, bool leftMost, Operation op, Transaction *transaction);
+  B_PLUS_TREE_LEAF_PAGE_TYPE *FindLeafPage(const KeyType &key, bool leftMost = false, Operation op = Operation::READONLY, Transaction *transaction = nullptr);
 
  private:
   void StartNewTree(const KeyType &key, const ValueType &value);
@@ -96,7 +95,7 @@ class BPlusTree {
   bool CoalesceOrRedistribute(N *node, Transaction *transaction = nullptr);
 
   template <typename N>
-  bool Coalesce(N **neighbor_node, N **node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> **parent,
+  bool Coalesce(N *neighbor_node, N *node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent,
                 int index, Transaction *transaction = nullptr);
 
   template <typename N>

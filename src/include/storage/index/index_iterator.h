@@ -24,6 +24,7 @@ class IndexIterator {
  public:
   // you may define your own constructor based on your member variables
   IndexIterator();
+  IndexIterator(BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *leaf, int index_, BufferPoolManager *buff_pool_manager);
   ~IndexIterator();
 
   bool isEnd();
@@ -38,6 +39,9 @@ class IndexIterator {
 
  private:
   // add your own private member variables here
+  BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *leaf_;
+  int index_;
+  BufferPoolManager *buff_pool_manager_;  
 };
 
 }  // namespace bustub

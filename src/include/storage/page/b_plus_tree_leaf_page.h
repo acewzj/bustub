@@ -59,9 +59,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   // Split and Merge utility methods
   void MoveHalfTo(BPlusTreeLeafPage *recipient);
-  void MoveAllTo(BPlusTreeLeafPage *recipient);
+  void MoveAllTo(BPlusTreeLeafPage *recipient, int /* Unused */);
   void MoveFirstToEndOf(BPlusTreeLeafPage *recipient);
-  void MoveLastToFrontOf(BPlusTreeLeafPage *recipient);
+  void MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parent_index);
 
  private:
   void CopyNFrom(MappingType *items, int size);

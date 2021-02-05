@@ -79,6 +79,12 @@ ValueType B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const {
   return array[index].second;
 }
 
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetValueAt(int index, const ValueType &value) {
+  assert(0 <= index && index < GetSize());
+  array[index].second = value;
+}
 /*****************************************************************************
  * LOOKUP
  *****************************************************************************/
@@ -120,11 +126,12 @@ ValueType B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyCo
  * Populate new root page with old_value + new_key & new_value
  * When the insertion cause overflow from leaf page all the way upto the root
  * page, you should create a new root page and populate its elements.
+ * 使用old_value + new_key & new_value 在新的根页面进行殖民
+ * 当插入造成叶子页面的溢出时，你需要创造一个新的根页面并且殖民其元素
  * NOTE: This method is only called within InsertIntoParent()(b_plus_tree.cpp)
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_value, const KeyType &new_key,
-                                                     const ValueType &new_value) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value) {
   // must be an empty page
   assert(GetSize() == 1);
   array[0].second = old_value;
@@ -158,15 +165,14 @@ int B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const ValueType &old_value, 
  * Remove half of key & value pairs from this page to "recipient" page
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(BPlusTreeInternalPage *recipient,
-                                                BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(BPlusTreeInternalPage *recipient) {
   auto half = (GetSize() + 1) / 2;
   recipient->CopyNFrom(array + GetSize() - half, half, buffer_pool_manager);
 
   // 更新孩子节点的父节点id
   for (auto index = GetSize() - half; index < GetSize(); ++index)
   {
-    auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
+    auto *page = buffer_pool_manager_->FetchPage(ValueAt(index));
     if (page == nullptr)
     {
       throw Exception(ExceptionType::OUT_OF_MEMORY,
@@ -176,7 +182,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(BPlusTreeInternalPage *recipient
     child->SetParentPageId(recipient->GetPageId());
 
     assert(child->GetParentPageId() == recipient->GetPageId());
-    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+    buffer_pool_manager_->UnpinPage(child->GetPageId(), true);
   }
   IncreaseSize(-1 * half);
 }
@@ -186,7 +192,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(BPlusTreeInternalPage *recipient
  * So I need to 'adopt' them by changing their parent page id, which needs to be persisted with BufferPoolManger
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyNFrom(MappingType *items, int size, BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyNFrom(MappingType *items, int size) {
   assert(!IsLeafPage() && GetSize() == 1 && size > 0);
   for (int i = 0; i < size; ++i)
   {
@@ -234,10 +240,9 @@ ValueType B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() {
  * pages that are moved to the recipient
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage *recipient, const KeyType &middle_key,
-                                               BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage *recipient, const KeyType &middle_key) {
   // 首先先获得父节点页面
-  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+  auto *page = buffer_pool_manager_->FetchPage(GetParentPageId());
   if (page == nullptr) {
     throw Exception(ExceptionType::OUT_OF_MEMORY,
                     "all page are pinned while MoveAllTo");
@@ -253,7 +258,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage *recipient,
   recipient->CopyNFrom(array, GetSize(), buffer_pool_manager);  
   // 更新孩子节点的父节点id
   for (auto index = 0; index < GetSize(); ++index) {
-    auto *page = buffer_pool_manager->FetchPage(ValueAt(index));
+    auto *page = buffer_pool_manager_->FetchPage(ValueAt(index));
     if (page == nullptr) {
       throw Exception(ExceptionType::OUT_OF_MEMORY,
                       "all page are pinned while CopyLastFrom");
@@ -263,7 +268,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage *recipient,
     child->SetParentPageId(recipient->GetPageId());
 
     assert(child->GetParentPageId() == recipient->GetPageId());
-    buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+    buffer_pool_manager_->UnpinPage(child->GetPageId(), true);
   }  
 }
 
@@ -279,7 +284,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage *recipient,
  * pages that are moved to the recipient
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *recipient, BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *recipient) {
   assert(GetSize() > 1);
   MappingType pair{KeyAt(1), ValueAt(0)};
   page_id_t child_page_id = ValueAt(0);
@@ -287,14 +292,14 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *rec
   Remove(1);
   recipient->CopyLastFrom(pair, buffer_pool_manager);
   
-  auto *page = buffer_pool_manager->FetchPage(child_page_id);  // 更新孩子节点的父节点id
+  auto *page = buffer_pool_manager_->FetchPage(child_page_id);  // 更新孩子节点的父节点id
   if (page == nullptr) {
     throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while MoveFirstToEndOf");
   }
   auto child = reinterpret_cast<BPlusTreePage *>(page->GetData());
   child->SetParentPageId(recipient->GetPageId());
   assert(child->GetParentPageId() == recipient->GetPageId());
-  buffer_pool_manager->UnpinPage(child->GetPageId(), true);  
+  buffer_pool_manager_->UnpinPage(child->GetPageId(), true);  
 }
 
 /* Append an entry at the end.
@@ -302,9 +307,9 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *rec
  * So I need to 'adopt' it by changing its parent page id, which needs to be persisted with BufferPoolManger
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyLastFrom(const MappingType &pair, BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyLastFrom(const MappingType &pair) {
   assert(GetSize() + 1 <= GetMaxSize());
-  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+  auto *page = buffer_pool_manager_->FetchPage(GetParentPageId());
   if (page == nullptr) {
     throw Exception(ExceptionType::OUT_OF_MEMORY, "All pages are pinned while CopyLastFrom");
   }
@@ -315,7 +320,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyLastFrom(const MappingType &pair, Buffe
   IncreaseSize(1);
   parent->SetKeyAt(index + 1, pair.first);
 
-  buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
+  buffer_pool_manager_->UnpinPage(parent->GetPageId(), true);
 }
 
 
@@ -329,13 +334,13 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyLastFrom(const MappingType &pair, Buffe
  * 你需要处理原始的虚拟键-1，例如：更新 recipient 页的数组
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeInternalPage *recipient, int parent_index, BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeInternalPage *recipient, int parent_index) {
   assert(GetSize() > 1);
   IncreaseSize(-1);// 减少该页的数量-1
   MappingType pair = array[GetSize()]; // 取得最后的键值对
   page_id_t child_page_id = pair.second; // 取得最后的键值对指向的孩子页面 ID
   recipient->CopyFirstFrom(pair, parent_index, buffer_pool_manager); // 将 pair 插入到 recipient 的 -1 的右面第一个
-  auto *page = buffer_pool_manager->FetchPage(child_page_id); // 更新孩子节点的父节点 ID
+  auto *page = buffer_pool_manager_->FetchPage(child_page_id); // 更新孩子节点的父节点 ID
   if (page == nullptr) {
     throw Exception(ExceptionType::OUT_OF_MEMORY, "All pages are pinned while CopyLastFrom");
   }
@@ -343,7 +348,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeInternalPage *re
   child->SetParentPageId(recipient->GetPageId());
 
   assert(child->GetParentPageId() == recipient->GetPageId());
-  buffer_pool_manager->UnpinPage(child->GetPageId(), true);
+  buffer_pool_manager_->UnpinPage(child->GetPageId(), true);
 }
 
 /* Append an entry at the beginning.
@@ -354,7 +359,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeInternalPage *re
  * 所以需要调整该条记录所在页面的父页面ID，同时需要和BPM一致
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyFirstFrom(const MappingType &pair, int parent_index, BufferPoolManager *buffer_pool_manager) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyFirstFrom(const MappingType &pair, int parent_index) {
   assert(GetSize() + 1 < GetMaxSize()); // 断言当前页面的记录数量能给新纪录留下足够的空间，如果空间不够了的话直接就退出了
   auto* page = buffer_pool_manager->FetchPage(GetParentPageId()); // 从BPM中取出当前页面的父亲页面ID，好进行更新
   if (page == nullptr) {
@@ -367,7 +372,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyFirstFrom(const MappingType &pair, int 
   // 此处为什么不采用 InsertNodeAfter(array[0].second, key, pair.second); ？
   // 因为 InsertNodeAfter 函数是通过寻找 old_value == new_value 来将 新的 键值对 插入到 -1 的右面，然后再更新 value 就可以了
   array[0].second = pair.second;
-  buffer_pool_manager->UnpinPage(parent->GetPageId(), true);
+  buffer_pool_manager_->UnpinPage(parent->GetPageId(), true);
 }
 
 // valuetype for internalNode should be page id_t

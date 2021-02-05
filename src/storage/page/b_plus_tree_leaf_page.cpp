@@ -242,7 +242,27 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *recipient) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *recipient) {
+  MappingType pair = GetItem(0);
+  IncreaseSize(-1);
+  memmove(array, array + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
 
+  recipient->CopyLastFrom(pair);
+
+  auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
+  if (page == nullptr)
+  {
+    throw Exception(ExceptionType::OUT_OF_MEMORY,
+                    "all page are pinned while MoveFirstToEndOf");
+  }
+
+  auto parent =
+      reinterpret_cast<BPlusTreeInternalPage<KeyType, decltype(GetPageId()),
+                                             KeyComparator> *>(page->GetData());
+
+  
+  parent->SetKeyAt(parent->ValueIndex(GetPageId()), pair.first);
+
+  buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }
 
 /*
@@ -250,15 +270,19 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *recipient) 
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyLastFrom(const MappingType &item) {
-
+  assert(GetSize() + 1 <= GetMaxSize());
+  array[GetSize()] = item;
+  IncreaseSize(1);
 }
 
 /*
  * Remove the last key & value pair from this page to "recipient" page.
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeLeafPage *recipient) {
-
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parent_index) {
+  MappingType pair = GetItem(GetSize() - 1);
+  IncreaseSize(-1);
+  recipient->CopyFirstFrom(pair, parentIndex, buffer_pool_manager_);
 }
 
 /*
@@ -266,7 +290,26 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeLeafPage *recipient)
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyFirstFrom(const MappingType &item) {
+  assert(GetSize() + 1 < GetMaxSize());
+  memmove(array + 1, array, GetSize() * sizeof(MappingType));
+  IncreaseSize(1);
+  array[0] = item;
+
+  auto *page = buffer_pool_manager_->FetchPage(GetParentPageId());
+  if (page == nullptr)
+  {
+    throw Exception(ExceptionType::OUT_OF_MEMORY,
+                    "all page are pinned while CopyFirstFrom");
+  }
+
+  auto parent =
+      reinterpret_cast<BPlusTreeInternalPage<KeyType, decltype(GetPageId()),
+                                             KeyComparator> *>(page->GetData());
+
   
+  parent->SetKeyAt(parentIndex, item.first);
+
+  buffer_pool_manager->UnpinPage(GetParentPageId(), true);
 }
 
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;
