@@ -136,7 +136,7 @@ int B_PLUS_TREE_LEAF_PAGE_TYPE::Insert(const KeyType &key, const ValueType &valu
  * Remove half of key & value pairs from this page to "recipient" page
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(BPlusTreeLeafPage *recipient) {
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(BPlusTreeLeafPage *recipient, BufferPoolManager *buffer_pool_manager) {
   assert(GetSize() > 0);
   int size = GetSize() / 2;
   MappingType *src = array + GetSize() - size;
@@ -228,7 +228,7 @@ int B_PLUS_TREE_LEAF_PAGE_TYPE::RemoveAndDeleteRecord(const KeyType &key, const 
  * to update the next_page id in the sibling page
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *recipient) {
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *recipient, int, BufferPoolManager *) {
   recipient->CopyNFrom(array, GetSize());
   // ?这块不应该是从 x 拷贝 到 y 吗？不应该是设置 x 的 NextPageId？怎么变成了设置 y 的 NextPageId？？？
   recipient->SetNextPageId(GetNextPageId());
@@ -241,7 +241,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *recipient) {
  * Remove the first key & value pair from this page to "recipient" page.
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *recipient) {
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *recipient, BufferPoolManager *buffer_pool_manager) {
   MappingType pair = GetItem(0);
   IncreaseSize(-1);
   memmove(array, array + 1, static_cast<size_t>(GetSize() * sizeof(MappingType)));
@@ -251,15 +251,12 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *recipient) 
   auto *page = buffer_pool_manager->FetchPage(GetParentPageId());
   if (page == nullptr)
   {
-    throw Exception(ExceptionType::OUT_OF_MEMORY,
-                    "all page are pinned while MoveFirstToEndOf");
+    throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while MoveFirstToEndOf");
   }
+  //auto parent = reinterpret_cas
+  BPl
+  auto parent = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
 
-  auto parent =
-      reinterpret_cast<BPlusTreeInternalPage<KeyType, decltype(GetPageId()),
-                                             KeyComparator> *>(page->GetData());
-
-  
   parent->SetKeyAt(parent->ValueIndex(GetPageId()), pair.first);
 
   buffer_pool_manager->UnpinPage(GetParentPageId(), true);
@@ -279,7 +276,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyLastFrom(const MappingType &item) {
  * Remove the last key & value pair from this page to "recipient" page.
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parent_index) {
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeLeafPage *recipient, int parent_index, BufferPoolManager *buffer_pool_manager) {
   MappingType pair = GetItem(GetSize() - 1);
   IncreaseSize(-1);
   recipient->CopyFirstFrom(pair, parentIndex, buffer_pool_manager_);
@@ -289,8 +286,8 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeLeafPage *recipient,
  * Insert item at the front of my items. Move items accordingly.
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyFirstFrom(const MappingType &item) {
-  assert(GetSize() + 1 < GetMaxSize());
+void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyFirstFrom(const MappingType &item, int parentIndex, BufferPoolManager *buffer_pool_manager) {
+  assert(GetSize() + 1 < GetMaxSize()); 
   memmove(array + 1, array, GetSize() * sizeof(MappingType));
   IncreaseSize(1);
   array[0] = item;

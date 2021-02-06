@@ -49,8 +49,7 @@ INDEXITERATOR_TYPE &INDEXITERATOR_TYPE::operator++() {
 
     auto *page = buff_pool_manager_->FetchPage(next_page_id);
     if (page == nullptr) {
-      throw Exception(EXCEPTION_TYPE_INDEX,
-                      "all page are pinned while IndexIterator(operator++)");
+      throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while IndexIterator(operator++)");
     }
     // first acquire next page, then release previous page
     page->RLatch();

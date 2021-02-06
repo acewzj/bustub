@@ -227,7 +227,7 @@ N *BPLUSTREE_TYPE::Split(N *node) {
   auto new_node = reinterpret_cast<N *>(page->GetData());
   new_node->Init(page_id, node->GetPageId(), node->GetMaxSize());
 
-  node->MoveHalfTo(new_node);
+  node->MoveHalfTo(new_node, buffer_pool_manager_);
   return new_node;
 }
 
@@ -431,7 +431,7 @@ bool BPLUSTREE_TYPE::CoalesceOrRedistribute(N *node, Transaction *transaction) {
  * take info of deletion into account. Remember to deal with coalesce or
  * redistribute recursively if necessary.
  * Using template N to represent either internal page or leaf page.
- * 移动所有的键值对 从一个页面到它的兄弟页面，并且通知BPM 去删除该页，父页面必须进行调整以考虑删除信息 必要时递归重新分配
+ * 移动所有的键值对 从一个页面到它的兄弟页面，并且通知 BPM 去删除该页，父页面必须进行调整以考虑删除信息 必要时递归重新分配
  * @param   neighbor_node      sibling page of input "node"
  * @param   node               input from method coalesceOrRedistribute()
  * @param   parent             parent page of input "node"
@@ -443,7 +443,7 @@ template <typename N>
 bool BPLUSTREE_TYPE::Coalesce(N *neighbor_node, N *node,
                               BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent, int index,
                               Transaction *transaction) {
-  node->MoveAllTo(neighbor_node, index);
+  node->MoveAllTo(neighbor_node, index, buffer_pool_manager_);
 
   parent->Remove(index);
 
@@ -470,7 +470,7 @@ INDEX_TEMPLATE_ARGUMENTS
 template <typename N>
 void BPLUSTREE_TYPE::Redistribute(N *neighbor_node, N *node, int index) {
   if (index == 0) {
-    neighbor_node->MoveFirstToEndOf(node);
+    neighbor_node->MoveFirstToEndOf(node, buffer_pool_manager_);
   }
   else {
     auto *page = buffer_pool_manager_->FetchPage(node->GetParentPageId());
@@ -481,7 +481,7 @@ void BPLUSTREE_TYPE::Redistribute(N *neighbor_node, N *node, int index) {
     auto parent = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(page->GetData());
     int idx = parent->ValueIndex(node->GetPageId());
     buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
-    neighbor_node->MoveLastToFrontOf(node, idx);
+    neighbor_node->MoveLastToFrontOf(node, idx, buffer_pool_manager_);
   }  
 }
 /*
@@ -521,7 +521,12 @@ bool BPLUSTREE_TYPE::AdjustRoot(BPlusTreePage *old_root_node) {
   }
   return false;
 }
-
+INDEX_TEMPLATE_ARGUMENTS
+INDEXITERATOR_TYPE BPLUSTREE_TYPE::begin()
+{
+  KeyType key{};
+  return IndexIterator<KeyType, ValueType, KeyComparator>(FindLeafPage(key, true), 0, buffer_pool_manager_);
+}
 /*
  * Input parameter is low key, find the leaf page that contains the input key
  * first, then construct index iterator
