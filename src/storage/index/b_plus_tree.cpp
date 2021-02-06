@@ -250,9 +250,9 @@ void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &ke
       throw Exception(ExceptionType::OUT_OF_MEMORY, "all page are pinned while InsertIntoParent");
     }
     assert(page->GetPinCount() == 1);
-    auto* root = reinterpret_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *> (page->GetData());
+    auto* root = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *> (page->GetData());
     root->Init(root_page_id_, INVALID_PAGE_ID, internal_max_size_);
-    root->PopulateNewRoot(static_cast<ValueType>(old_node->GetPageId()), key, static_cast<ValueType>(new_node->GetPageId()));
+    root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
 
     old_node->SetParentPageId(root_page_id_);
     new_node->SetParentPageId(root_page_id_);    
@@ -548,7 +548,12 @@ INDEXITERATOR_TYPE BPLUSTREE_TYPE::Begin(const KeyType &key) {
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-INDEXITERATOR_TYPE BPLUSTREE_TYPE::end() { return INDEXITERATOR_TYPE(); }
+INDEXITERATOR_TYPE BPLUSTREE_TYPE::end() { 
+  auto iterator = begin();
+  for (; iterator.isEnd() == false; ++iterator) {
+  }
+  return iterator; 
+}
 
 /*****************************************************************************
  * UTILITIES AND DEBUG

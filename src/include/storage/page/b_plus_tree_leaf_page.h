@@ -66,7 +66,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
  private:
   void CopyNFrom(MappingType *items, int size);
   void CopyLastFrom(const MappingType &item);
-  void CopyFirstFrom(const MappingType &item, int parentIndex, BufferPoolManager *buffer_pool_manager);
+  void CopyFirstFrom(const MappingType &item, int parent_index, BufferPoolManager *buffer_pool_manager);
   page_id_t next_page_id_;
   MappingType array[0];
 };

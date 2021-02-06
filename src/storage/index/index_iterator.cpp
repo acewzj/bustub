@@ -11,8 +11,7 @@ namespace bustub {
  * NOTE: you can change the destructor/constructor method here
  * set your own input parameters
  */
-INDEX_TEMPLATE_ARGUMENTS
-INDEXITERATOR_TYPE::IndexIterator() {}
+ 
 
 INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::IndexIterator(BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *leaf,

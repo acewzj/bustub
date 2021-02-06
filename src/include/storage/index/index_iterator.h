@@ -23,8 +23,8 @@ INDEX_TEMPLATE_ARGUMENTS
 class IndexIterator {
  public:
   // you may define your own constructor based on your member variables
-  IndexIterator();
-  IndexIterator(BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *leaf, int index_, BufferPoolManager *buff_pool_manager);
+  IndexIterator(BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *,
+                int, BufferPoolManager *);
   ~IndexIterator();
 
   bool isEnd();
