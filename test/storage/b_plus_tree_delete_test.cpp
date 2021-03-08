@@ -54,7 +54,7 @@ TEST(BPlusTreeTests, DISABLED_DeleteTest1) {
   int64_t start_key = 1;
   int64_t current_key = start_key;
   index_key.SetFromInteger(start_key);
-  for (auto iterator = tree.Begin(index_key); iterator != tree.end(); ++iterator) {
+  for (auto iterator = tree.Begin(index_key); iterator.isEnd() == false; ++iterator) {
     auto location = (*iterator).second;
     EXPECT_EQ(location.GetPageId(), 0);
     EXPECT_EQ(location.GetSlotNum(), current_key);
@@ -73,7 +73,7 @@ TEST(BPlusTreeTests, DISABLED_DeleteTest1) {
   current_key = start_key;
   int64_t size = 0;
   index_key.SetFromInteger(start_key);
-  for (auto iterator = tree.Begin(index_key); iterator != tree.end(); ++iterator) {
+  for (auto iterator = tree.Begin(index_key); iterator.isEnd() == false; ++iterator) {
     auto location = (*iterator).second;
     EXPECT_EQ(location.GetPageId(), 0);
     EXPECT_EQ(location.GetSlotNum(), current_key);
@@ -92,7 +92,7 @@ TEST(BPlusTreeTests, DISABLED_DeleteTest1) {
   remove("test.log");
 }
 
-TEST(BPlusTreeTests, DISABLED_DeleteTest2) {
+TEST(BPlusTreeTests, DeleteTest2) {
   // create KeyComparator and index schema
   Schema *key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema);
@@ -133,7 +133,7 @@ TEST(BPlusTreeTests, DISABLED_DeleteTest2) {
   int64_t start_key = 1;
   int64_t current_key = start_key;
   index_key.SetFromInteger(start_key);
-  for (auto iterator = tree.Begin(index_key); iterator != tree.end(); ++iterator) {
+  for (auto iterator = tree.Begin(index_key); iterator.isEnd() == false; ++iterator) {
     auto location = (*iterator).second;
     EXPECT_EQ(location.GetPageId(), 0);
     EXPECT_EQ(location.GetSlotNum(), current_key);
@@ -152,7 +152,7 @@ TEST(BPlusTreeTests, DISABLED_DeleteTest2) {
   current_key = start_key;
   int64_t size = 0;
   index_key.SetFromInteger(start_key);
-  for (auto iterator = tree.Begin(index_key); iterator != tree.end(); ++iterator) {
+  for (auto iterator = tree.Begin(index_key); iterator.isEnd() == false; ++iterator) {
     auto location = (*iterator).second;
     EXPECT_EQ(location.GetPageId(), 0);
     EXPECT_EQ(location.GetSlotNum(), current_key);
